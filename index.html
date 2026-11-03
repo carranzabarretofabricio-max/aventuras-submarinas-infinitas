@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aventuras submarinas infinitas</title>
+<style>
+:root{--aqua:#48e4df;--deep:#031b3c;--panel:#092d52}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;color:#efffff;font-family:system-ui,Segoe UI,Arial,sans-serif;background:radial-gradient(circle at 50% 0,#087e9b 0,#06456e 38%,#031b3c 100%);display:flex;align-items:center;justify-content:center;padding:20px}
+.wrap{width:min(100%,980px)}header{text-align:center;margin-bottom:14px}h1{margin:0;color:#a8fff4;font-size:clamp(28px,5vw,48px);text-shadow:0 4px 20px #00c8d8}header p{margin:6px 0;color:#c5f7ff}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:16px}.game-card,.side{background:#052747d9;border:1px solid #46dce455;border-radius:20px;box-shadow:0 16px 45px #00101f88;padding:14px}
+.hud{display:flex;justify-content:space-between;gap:8px;margin:0 2px 10px;flex-wrap:wrap}.pill{background:#0b4265;border:1px solid #5de9e355;border-radius:999px;padding:7px 13px;font-weight:700}
+canvas{display:block;width:100%;height:auto;aspect-ratio:16/9;border-radius:14px;background:#087b9d;touch-action:manipulation}
+.controls{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+button{border:0;border-radius:12px;padding:11px 18px;font-weight:800;color:#03233d;background:linear-gradient(135deg,#9affeb,#40d5e6);cursor:pointer}
+button.secondary{background:#145078;color:#eaffff;border:1px solid #5de9e377}button:disabled{opacity:.5;cursor:not-allowed}
+.help{text-align:center;color:#bfeef5;font-size:13px;margin:10px 0 0}
+.side h2{margin:4px 0 12px;color:#9affeb;font-size:21px}.side label{display:block;font-size:13px;color:#c5f7ff;margin-bottom:6px}
+input{width:100%;border:1px solid #58dce277;background:#031e38;color:white;border-radius:10px;padding:11px;font-size:15px;margin-bottom:9px}
+.status{font-size:12px;color:#b7e7ed;min-height:32px;margin:8px 0}.rank{margin:0;padding:0;list-style:none}.rank li{display:flex;justify-content:space-between;padding:9px 8px;border-bottom:1px solid #ffffff18;font-size:14px}.rank li:first-child{color:#ffe58a}.small{font-size:12px;color:#a9dce6;line-height:1.5;margin-top:12px}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:#031b3c99;border-radius:14px;padding:20px}.canvas-wrap{position:relative}.overlay h2{font-size:clamp(22px,4vw,36px);color:#a8fff4;margin:0 0 8px}.overlay p{margin:0 0 16px}.hidden{display:none!important}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.side{order:2}.game-card{padding:9px}.side{padding:14px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header><h1>🐠 Aventuras submarinas infinitas</h1><p>¡Salta los obstáculos, recoge perlas y consigue el récord!</p></header>
+<div class="layout">
+<section class="game-card">
+<div class="hud"><span class="pill">⭐ Puntaje: <b id="score">0</b></span><span class="pill">🫧 Perlas: <b id="pearls">0</b></span><span class="pill">🏆 Récord: <b id="best">0</b></span></div>
+<div class="canvas-wrap">
+<canvas id="game" width="900" height="506" aria-label="Juego submarino"></canvas>
+<div class="overlay" id="overlay"><h2>¡Explora el océano!</h2><p>Salta sobre rocas y recoge todas las perlas.</p><button id="start">Comenzar aventura</button></div>
+</div>
+<div class="controls"><button id="jump">SALTAR ⬆</button><button class="secondary" id="pause">Pausar</button><button class="secondary" id="restart">Reiniciar</button></div>
+<p class="help">Controles: ESPACIO, ↑, clic o toque para saltar.</p>
+</section>
+<aside class="side">
+<h2>🏅 Ranking de exploradores</h2>
+<label for="player">Tu nombre</label><input id="player" maxlength="18" placeholder="Escribe tu nombre" autocomplete="nickname">
+<button id="save" style="width:100%">Guardar mi puntaje</button>
+<div class="status" id="status">Conecta la base de datos para compartir el ranking.</div>
+<ol class="rank" id="ranking"><li><span>Sin puntuaciones</span><b>—</b></li></ol>
+<p class="small">El ranking muestra las mejores puntuaciones guardadas. Si la base de datos aún no está configurada, el juego seguirá funcionando y guardará tu récord en este dispositivo.</p>
+</aside>
+</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// CONFIGURACIÓN: reemplaza estos dos valores una sola vez con los datos públicos de tu proyecto Supabase.
+// No pongas aquí la clave service_role ni ninguna clave secreta.
+const SUPABASE_URL = "https://etwfqdlsulsrkacylnfn.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_-H9YMGkqYNfAGZdSzy83BQ_TFKeqq-_";
+const supabaseReady = SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("PEGA_AQUI") && !SUPABASE_ANON_KEY.includes("PEGA_AQUI") && !!window.supabase;
+const db = supabaseReady ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+const canvas=document.getElementById("game"),ctx=canvas.getContext("2d");
+const $=id=>document.getElementById(id);
+let state="ready",score=0,pearls=0,best=Number(localStorage.getItem("subseaBest")||0);
+let frame=0,speed=5,obstacles=[],gems=[],bubbles=[],lastTime=0,saveAllowed=true;
+$("best").textContent=best;
+const floor=420;
+const diver={x:135,y:floor-52,w:48,h:52,vy:0,onGround:true};
+function reset(){score=0;pearls=0;frame=0;speed=5;obstacles=[];gems=[];diver.y=floor-diver.h;diver.vy=0;diver.onGround=true;updateHud()}
+function updateHud(){$("score").textContent=score;$("pearls").textContent=pearls;$("best").textContent=best}
+function jump(){if(state==="ready"){startGame();return}if(state!=="playing")return;if(diver.onGround){diver.vy=-14.5;diver.onGround=false}}
+function startGame(){reset();state="playing";$("overlay").classList.add("hidden");lastTime=performance.now();requestAnimationFrame(loop)}
+function endGame(){state="over";$("overlay").classList.remove("hidden");$("overlay").innerHTML=`<h2>¡Fin de la aventura!</h2><p>Lograste ${score} puntos y recogiste ${pearls} perlas.</p><button id="again">Volver a jugar</button>`;$("again").onclick=startGame;if(score>best){best=score;localStorage.setItem("subseaBest",best);updateHud()}}
+function drawBackground(){
+ let g=ctx.createLinearGradient(0,0,0,506);g.addColorStop(0,"#087b9d");g.addColorStop(.65,"#075277");g.addColorStop(1,"#032e53");ctx.fillStyle=g;ctx.fillRect(0,0,900,506);
+ // rayos de luz
+ ctx.globalAlpha=.10;for(let i=0;i<5;i++){ctx.fillStyle="#b6fff2";ctx.beginPath();ctx.moveTo(100+i*190,0);ctx.lineTo(180+i*190,0);ctx.lineTo(320+i*190,420);ctx.lineTo(260+i*190,420);ctx.fill()}ctx.globalAlpha=1;
+ bubbles.forEach(b=>{ctx.strokeStyle="#b7f8f5aa";ctx.lineWidth=2;ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.stroke()});
+ // algas
+ for(let i=0;i<12;i++){let x=(i*93-(frame*.5)%100+900)%900;ctx.strokeStyle=i%2?"#1aa68a":"#39bd91";ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(x,floor);ctx.quadraticCurveTo(x-20,floor-35,x+8,floor-78);ctx.stroke()}
+ ctx.fillStyle="#063b55";ctx.fillRect(0,floor,900,86);ctx.fillStyle="#0b6b77";ctx.fillRect(0,floor,900,8);
+}
+function drawDiver(){let x=diver.x,y=diver.y;ctx.save();ctx.translate(x,y);
+ // cola y traje
+ ctx.fillStyle="#ffb347";ctx.beginPath();ctx.moveTo(8,28);ctx.lineTo(-13,17);ctx.lineTo(-9,39);ctx.closePath();ctx.fill();
+ ctx.fillStyle="#f5a623";ctx.beginPath();ctx.ellipse(24,30,18,22,0,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle="#ffcf91";ctx.beginPath();ctx.arc(29,12,15,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle="#123d66";ctx.fillRect(17,1,24,8);
+ ctx.fillStyle="#7eeaff";ctx.beginPath();ctx.ellipse(34,12,8,6,0,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle="#123d66";ctx.fillRect(10,47,14,7);ctx.fillRect(29,47,14,7);
+ ctx.restore()}
+function drawObstacle(o){ctx.fillStyle="#687f91";ctx.beginPath();ctx.moveTo(o.x,o.y+o.h);ctx.lineTo(o.x+4,o.y+15);ctx.lineTo(o.x+o.w*.45,o.y);ctx.lineTo(o.x+o.w,o.y+o.h);ctx.closePath();ctx.fill();ctx.fillStyle="#91a9b4";ctx.beginPath();ctx.ellipse(o.x+o.w*.4,o.y+o.h*.55,8,5,-.4,0,7);ctx.fill()}
+function drawGem(p){ctx.save();ctx.translate(p.x,p.y);ctx.fillStyle="#fff2a8";ctx.shadowColor="#fff1a0";ctx.shadowBlur=16;ctx.beginPath();ctx.arc(0,0,11,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.fillStyle="#e2a7ff";ctx.beginPath();ctx.arc(-3,-3,4,0,Math.PI*2);ctx.fill();ctx.restore()}
+function spawn(){if(frame%95===0)obstacles.push({x:930,y:floor-38,w:35+Math.random()*15,h:38});if(frame%72===0)gems.push({x:930,y:floor-85-Math.random()*95,r:12})}
+function hit(a,b){return a.x+8<b.x+b.w&&a.x+a.w-8>b.x&&a.y+8<b.y+b.h&&a.y+a.h-5>b.y}
+function update(){
+ frame++;speed=Math.min(10,speed+.001);score+=1;diver.vy+=.72;diver.y+=diver.vy;if(diver.y>=floor-diver.h){diver.y=floor-diver.h;diver.vy=0;diver.onGround=true}
+ spawn();obstacles.forEach(o=>o.x-=speed);gems.forEach(p=>p.x-=speed);
+ obstacles=obstacles.filter(o=>o.x>-70);gems=gems.filter(p=>p.x>-30);
+ for(const o of obstacles){if(hit(diver,o)){endGame();return}}
+ gems=gems.filter(p=>{if(Math.hypot((diver.x+24)-p.x,(diver.y+25)-p.y)<32){pearls++;score+=25;return false}return true});
+ bubbles.forEach(b=>{b.y-=b.v;if(b.y<-10){b.y=510;b.x=Math.random()*900}});
+ updateHud()
+}
+function render(){drawBackground();gems.forEach(drawGem);obstacles.forEach(drawObstacle);drawDiver();ctx.fillStyle="#d4ffff";ctx.font="bold 17px system-ui";ctx.fillText("🌊",820,42)}
+function loop(t){if(state!=="playing")return;let delta=Math.min(32,t-lastTime);lastTime=t; // ritmo estable
+ if(delta>0)update();render();if(state==="playing")requestAnimationFrame(loop)}
+bubbles=Array.from({length:22},()=>({x:Math.random()*900,y:Math.random()*500,r:2+Math.random()*5,v:.3+Math.random()}));
+$("start").onclick=startGame;$("jump").onclick=jump;$("pause").onclick=()=>{if(state==="playing"){state="paused";$("overlay").classList.remove("hidden");$("overlay").innerHTML='<h2>Juego pausado</h2><button id="resume">Continuar</button>';$("resume").onclick=()=>{state="playing";$("overlay").classList.add("hidden");lastTime=performance.now();requestAnimationFrame(loop)}}};
+$("restart").onclick=startGame;
+window.addEventListener("keydown",e=>{if(["Space","ArrowUp","KeyW"].includes(e.code)){e.preventDefault();jump()}});
+canvas.addEventListener("pointerdown",jump);
+render();
+
+async function loadRanking(){
+ const list=$("ranking");
+ if(!db){list.innerHTML="<li><span>Base de datos sin configurar</span><b>—</b></li>";$("status").textContent="Configura Supabase en el código para activar el ranking compartido.";return}
+ const {data,error}=await db.from("underwater_scores").select("player_name,score,pearls,created_at").order("score",{ascending:false}).limit(10);
+ if(error){$("status").textContent="No se pudo cargar el ranking. Revisa la tabla y sus permisos.";return}
+ list.innerHTML=data.length?data.map((r,i)=>`<li><span>${i+1}. ${escapeHtml(r.player_name)}</span><b>${r.score}</b></li>`).join(""):'<li><span>Aún no hay puntuaciones</span><b>—</b></li>';
+ $("status").textContent="Ranking conectado y actualizado.";
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+$("save").onclick=async()=>{
+ const name=$("player").value.trim();
+ if(!name){$("status").textContent="Escribe tu nombre antes de guardar.";return}
+ if(score<=0){$("status").textContent="Juega una partida para conseguir puntos primero.";return}
+ if(!db){let local=JSON.parse(localStorage.getItem("subseaLocalScores")||"[]");local.push({player_name:name,score,pearls});local.sort((a,b)=>b.score-a.score);local=local.slice(0,10);localStorage.setItem("subseaLocalScores",JSON.stringify(local));$("ranking").innerHTML=local.map((r,i)=>`<li><span>${i+1}. ${escapeHtml(r.player_name)}</span><b>${r.score}</b></li>`).join("");$("status").textContent="Puntaje guardado en este dispositivo. Configura Supabase para compartirlo.";return}
+ $("save").disabled=true;$("status").textContent="Guardando puntuación…";
+ const {error}=await db.from("underwater_scores").insert({player_name:name,score,pearls});
+ $("save").disabled=false;
+ if(error){$("status").textContent="Error al guardar. Comprueba la tabla y las políticas RLS.";return}
+ $("status").textContent="¡Puntaje guardado correctamente!";await loadRanking();
+};
+loadRanking();
+</script>
+</body>
+</html>
